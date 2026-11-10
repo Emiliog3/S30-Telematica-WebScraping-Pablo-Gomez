@@ -1,0 +1,65 @@
+name: EA2 - pruebas y despliegue
+
+# En un pull request se verifican cambios; en main también se intenta desplegar.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'ea2/**'
+      - '.github/workflows/ea2-ci-cd.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'ea2/**'
+      - '.github/workflows/ea2-ci-cd.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ea2-pages
+  cancel-in-progress: false
+
+jobs:
+  probar-y-construir:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obtener el repositorio
+        uses: actions/checkout@v6
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: ea2/requirements.txt
+      - name: Instalar dependencia
+        run: python -m pip install -r ea2/requirements.txt
+      - name: Ejecutar ocho pruebas unitarias
+        run: python -m unittest discover -s ea2/tests -v
+      - name: Construir HTML, JSON y CSV
+        run: python ea2/src/analizador.py --html ea2/datos/snapshot_ea1.html --salida ea2/sitio
+      - name: Comprobar resultados generados
+        run: |
+          test -s ea2/sitio/index.html
+          test -s ea2/sitio/resultado.json
+          test -s ea2/sitio/resultado.csv
+      - name: Preparar archivo de GitHub Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ea2/sitio
+
+  desplegar:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: probar-y-construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publicar el tablero académico
+        id: deployment
+        uses: actions/deploy-pages@v4
